@@ -1,8 +1,10 @@
 package action
 
 import (
+	"log"
 	"errors"
 	"runtime"
+	"unicode/utf8"
 
 	"github.com/zyedidia/micro/v2/internal/clipboard"
 	"github.com/zyedidia/micro/v2/internal/config"
@@ -11,6 +13,7 @@ import (
 	"github.com/zyedidia/micro/v2/internal/shell"
 	"github.com/zyedidia/tcell/v2"
 	"github.com/zyedidia/terminal"
+	runewidth "github.com/mattn/go-runewidth"
 )
 
 type TermKeyAction func(*TermPane)
@@ -153,11 +156,24 @@ func (t *TermPane) HandleEvent(event tcell.Event) {
 			clipboard.Write(t.GetSelection(t.GetView().Width), clipboard.ClipboardReg)
 			InfoBar.Message("Copied selection to clipboard")
 		} else if t.Status != shell.TTDone {
-			t.WriteString(event.EscSeq())
+			log.Printf(
+				">+ rune from event: %c | len: %d | valide utf8: %t | is key rune: %t",
+				e.Rune(), runewidth.RuneWidth(e.Rune()),
+				utf8.ValidRune(e.Rune()), e.Key() == tcell.KeyRune,
+			)
+			log.Printf(">+ esc from event: %v | len: %d", event.EscSeq(), len(event.EscSeq()))
+			// TODO: even tcell.KeyRune dected, the
+			// EscSeq func still may return Rune() combined with
+			// EscSeq. Maybe a bug in tcell
+			if e.Key() == tcell.KeyRune || e.Key() == tcell.KeyEnter {
+				t.WriteString(string(e.Rune()))
+			} else {
+				t.WriteString(event.EscSeq())
+			}
 		}
-	} else if _, ok := event.(*tcell.EventPaste); ok {
+	} else if e, ok := event.(*tcell.EventPaste); ok {
 		if t.Status != shell.TTDone {
-			t.WriteString(event.EscSeq())
+			t.WriteString(e.Text())
 		}
 	} else if e, ok := event.(*tcell.EventMouse); e != nil && (!ok || t.State.Mode(terminal.ModeMouseMask)) {
 		// t.WriteString(event.EscSeq())

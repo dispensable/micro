@@ -1,7 +1,7 @@
 package display
 
 import (
-	"log"
+	// "log"
 	// "fmt"
 	"github.com/zyedidia/micro/v2/internal/buffer"
 	"github.com/zyedidia/micro/v2/internal/config"
@@ -66,7 +66,7 @@ func (w *TermWindow) SetView(v *View) {
 	w.View = v
 }
 
-func (w *TermWindow) puts(styles []tcell.Style, x, y int, str []rune, p bool) {
+func (w *TermWindow) puts(styles []tcell.Style, x, y int, str []rune) {
 	i := 0
 	var deferred []rune
 	dwidth := 0
@@ -74,9 +74,7 @@ func (w *TermWindow) puts(styles []tcell.Style, x, y int, str []rune, p bool) {
 	var style tcell.Style
 	for idx, r := range str {
 		style = styles[idx]
-		if r == 0 {
-			log.Printf("~~ dingding got a zero")
-		}
+
 		if r == '\u200d' {
 			if len(deferred) == 0 {
 				deferred = append(deferred, ' ')
@@ -113,16 +111,10 @@ func (w *TermWindow) puts(styles []tcell.Style, x, y int, str []rune, p bool) {
 			dwidth = 2
 		}
 		deferred = append(deferred, r)
-		if p {
-			log.Printf(">>> display %c: at line: %d now: i=%d", r, y, i)
-		}
 	}
 	if len(deferred) != 0 {
 		screen.SetContent(x+i, y, deferred[0], deferred[1:], style)
 		i += dwidth
-		if p {
-			log.Printf(">>> finally i: %d", i)
-		}
 	}
 }
 
@@ -130,7 +122,7 @@ func (w *TermWindow) puts(styles []tcell.Style, x, y int, str []rune, p bool) {
 func (w *TermWindow) Display() {
 	w.State.Lock()
 	defer w.State.Unlock()
-	curx1, cury1 := w.State.Cursor()
+
 	var l buffer.Loc
 
 	for y := 0; y < w.Height; y++ {
@@ -157,10 +149,7 @@ func (w *TermWindow) Display() {
 			styles = append(styles, st)
 		}
 
-		w.puts(styles, w.X, w.Y+y, line, false)
-		if cury1 == y {
-			log.Printf(">> term cursor x: %d y: %d", curx1, cury1)
-		}
+		w.puts(styles, w.X, w.Y+y, line)
 	}
 
 	if config.GetGlobalOption("statusline").(bool) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"runtime"
 	"strings"
+	"strconv"
 	// "unicode/utf8"
 
 	"github.com/zyedidia/micro/v2/internal/clipboard"
@@ -157,6 +158,10 @@ func (t *TermPane) HandleEvent(event tcell.Event) {
 			clipboard.Write(t.GetSelection(t.GetView().Width), clipboard.ClipboardReg)
 			InfoBar.Message("Copied selection to clipboard")
 		} else if t.Status != shell.TTDone {
+			if t.State.ScrollMode {
+				InfoBar.Message("Scroll mode enabled, please disable and retry")
+				return
+			}
 			// log.Printf(
 			// 	">+ rune from event: %c | len: %d | valide utf8: %t | is key rune: %t",
 			// 	e.Rune(), runewidth.RuneWidth(e.Rune()),
@@ -255,7 +260,39 @@ func (t *TermPane) NextSplit() {
 
 // HandleCommand handles a command for the term pane
 func (t *TermPane) HandleCommand(input string) {
-	InfoBar.Error("Commands are unsupported in term for now")
+	command := strings.Split(input, " ")
+	if len(command) == 0 {
+		InfoBar.Error("No input to run")
+		return
+	}
+
+	switch command[0] {
+	case "scroll-mode":
+		if t.State.ScrollMode {
+			t.State.SetScrollMode(false)
+			InfoBar.Message("Scroll mode ... disabled")
+		} else {
+			t.State.SetScrollMode(true)
+			InfoBar.Message("Scroll mode ... enabled")
+		}
+	case "scroll-up":
+		if len(command[1:]) != 1 {
+			InfoBar.Error("scroll-up cmd only accept an int input")
+			return
+		}
+		offset, err := strconv.ParseInt(command[1], 10, 32)
+		if err != nil {
+			InfoBar.Error("scroll-up lines args parse err")
+			return
+		}
+		if !t.State.ScrollMode {
+			InfoBar.Message("Setting scroll mode")
+			t.State.SetScrollMode(true)
+		}
+		t.State.SetScrollOffset(int(offset))
+	default:
+		InfoBar.Error("Unknown command")
+	}
 }
 
 // TermKeyActions contains the list of all possible key actions the termpane could execute

@@ -145,4 +145,5 @@ func (t *Terminal) Close() {
 // WriteString writes a given string to this terminal's pty
 func (t *Terminal) WriteString(str string) {
 	t.Term.File().WriteString(str)
+	t.title = t.State.Title()
 }

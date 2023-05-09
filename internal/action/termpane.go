@@ -2,6 +2,7 @@ package action
 
 import (
 	// "log"
+	"fmt"
 	"errors"
 	"runtime"
 	"strings"
@@ -159,8 +160,8 @@ func (t *TermPane) HandleEvent(event tcell.Event) {
 			InfoBar.Message("Copied selection to clipboard")
 		} else if t.Status != shell.TTDone {
 			if t.State.ScrollMode {
-				InfoBar.Message("Scroll mode enabled, please disable and retry")
-				return
+				t.State.SetScrollMode(false)
+				InfoBar.Message("term-history mode disabled")
 			}
 			// log.Printf(
 			// 	">+ rune from event: %c | len: %d | valide utf8: %t | is key rune: %t",
@@ -267,29 +268,67 @@ func (t *TermPane) HandleCommand(input string) {
 	}
 
 	switch command[0] {
-	case "scroll-mode":
+	case "term-clip-paste":
+		c, err := clipboard.Read(clipboard.ClipboardReg)
+		if err != nil {
+			InfoBar.Error(fmt.Sprintf("read clipboard err: %s", err))
+			return
+		}
+		t.WriteString(c)
+		InfoBar.Message("pasted!")
+	case "term-history-mode":
 		if t.State.ScrollMode {
 			t.State.SetScrollMode(false)
-			InfoBar.Message("Scroll mode ... disabled")
+			InfoBar.Message("Term history scroll mode ... disabled")
 		} else {
 			t.State.SetScrollMode(true)
-			InfoBar.Message("Scroll mode ... enabled")
+			InfoBar.Message("Term history scroll mode ... enabled")
 		}
-	case "scroll-up":
-		if len(command[1:]) != 1 {
-			InfoBar.Error("scroll-up cmd only accept an int input")
+	case "term-history":
+		// params check
+		argsLen := len(command[1:])
+		upOrDown := 1
+		var offset int
+
+		w, ok := t.Window.(*display.TermWindow)
+		if !ok {
+			InfoBar.Error("window parse err")
 			return
 		}
-		offset, err := strconv.ParseInt(command[1], 10, 32)
-		if err != nil {
-			InfoBar.Error("scroll-up lines args parse err")
+		
+		switch argsLen {
+		case 1, 2:
+			switch command[1] {
+			case "up":
+				upOrDown = 1
+				offset = w.Height
+			case "down":
+				upOrDown = -1
+				offset = w.Height
+			default:
+				InfoBar.Error("params err, only accept up/down in term-history 1st param")
+				return
+			}
+		default:
+			InfoBar.Error("too many args for term-history, usage: term-history up/down <lines:ini>")
 			return
 		}
+
+		if argsLen == 2 {
+			offsetParsed, err := strconv.ParseInt(command[2], 10, 32)
+			if err != nil {
+				InfoBar.Error("scroll-up lines args parse err")
+				return
+			}
+			offset = int(offsetParsed)
+		}
+
 		if !t.State.ScrollMode {
-			InfoBar.Message("Setting scroll mode")
 			t.State.SetScrollMode(true)
+			InfoBar.Message("Setting term history mode ... done")
 		}
-		t.State.SetScrollOffset(int(offset))
+
+		t.State.SetScrollOffset(offset * upOrDown)
 	default:
 		InfoBar.Error("Unknown command")
 	}

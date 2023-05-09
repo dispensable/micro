@@ -95,6 +95,59 @@ func (i *InfoWindow) Clear() {
 	}
 }
 
+func (info *InfoWindow) puts(styles []tcell.Style, x, y int, str []rune) int {
+	i := 0
+	var deferred []rune
+	dwidth := 0
+	zwj := false
+	var style tcell.Style
+	for idx, r := range str {
+		style = styles[idx]
+
+		if r == '\u200d' {
+			if len(deferred) == 0 {
+				deferred = append(deferred, ' ')
+				dwidth = 1
+			}
+			deferred = append(deferred, r)
+			zwj = true
+			continue
+		}
+		if zwj {
+			deferred = append(deferred, r)
+			zwj = false
+			continue
+		}
+		switch runewidth.RuneWidth(r) {
+		case 0:
+			if len(deferred) == 0 {
+				deferred = append(deferred, ' ')
+				dwidth = 1
+			}
+		case 1:
+			if len(deferred) != 0 {
+				screen.SetContent(x+i, y, deferred[0], deferred[1:], style)
+				i += dwidth
+			}
+			deferred = nil
+			dwidth = 1
+		case 2:
+			if len(deferred) != 0 {
+				screen.SetContent(x+i, y, deferred[0], deferred[1:], style)
+				i += dwidth
+			}
+			deferred = nil
+			dwidth = 2
+		}
+		deferred = append(deferred, r)
+	}
+	if len(deferred) != 0 {
+		screen.SetContent(x+i, y, deferred[0], deferred[1:], style)
+		i += dwidth
+	}
+	return i
+}
+
 func (i *InfoWindow) displayBuffer() {
 	b := i.Buffer
 	line := b.LineBytes(0)
@@ -121,17 +174,8 @@ func (i *InfoWindow) displayBuffer() {
 				}
 
 			}
-
-			rw := runewidth.RuneWidth(r)
-			for j := 0; j < rw; j++ {
-				c := r
-				if j > 0 {
-					c = ' '
-					combc = nil
-				}
-				screen.SetContent(vlocX, i.Y, c, combc, style)
-			}
-			vlocX++
+			// TODO: puts the whole line rather than by for loop
+			vlocX += i.puts([]tcell.Style{style}, vlocX, i.Y, []rune{r})
 		}
 		nColsBeforeStart--
 	}
@@ -146,25 +190,17 @@ func (i *InfoWindow) displayBuffer() {
 
 		width := 0
 
-		char := ' '
 		switch r {
 		case '\t':
 			ts := tabsize - (totalwidth % tabsize)
 			width = ts
 		default:
 			width = runewidth.RuneWidth(r)
-			char = '@'
 		}
 
 		blocX++
 		line = line[size:]
 
-		// Draw any extra characters either spaces for tabs or @ for incomplete wide runes
-		if width > 1 {
-			for j := 1; j < width; j++ {
-				draw(char, nil, i.defStyle())
-			}
-		}
 		if activeC.X == curBX {
 			screen.ShowCursor(curVX, i.Y)
 		}

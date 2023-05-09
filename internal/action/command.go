@@ -46,6 +46,7 @@ func InitCommands() {
 		"replaceall": {(*BufPane).ReplaceAllCmd, nil},
 		"vsplit":     {(*BufPane).VSplitCmd, buffer.FileComplete},
 		"hsplit":     {(*BufPane).HSplitCmd, buffer.FileComplete},
+		"paneswitch": {(*BufPane).PanesSwitchCmd, PanesComplete},
 		"tab":        {(*BufPane).NewTabCmd, buffer.FileComplete},
 		"help":       {(*BufPane).HelpCmd, HelpComplete},
 		"eval":       {(*BufPane).EvalCmd, nil},
@@ -204,6 +205,40 @@ func (h *BufPane) TabMoveCmd(args []string) {
 	Tabs.UpdateNames()
 	Tabs.SetActive(idxTo)
 	// InfoBar.Message(fmt.Sprintf("Moved tab from slot %d to %d", idxFrom+1, idxTo+1))
+}
+
+// BufferSwitch
+func PanesComplete(_ *buffer.Buffer) ([]string, []string) {
+	// c := b.GetActiveCursor()
+	// input, argstart := GetArg(b)
+
+	suggesstions := []string{}
+	for _, p := range MainTab().Panes {
+		suggesstions = append(suggesstions, fmt.Sprintf("\"%d: %s\"", p.ID(), p.Name()))
+	}
+
+	return suggesstions, suggesstions
+}
+
+func (h *BufPane) PanesSwitchCmd(args []string) {
+	switch len(args) {
+	case 1:
+		useChoice := args[0]
+		useChoiceParsed := strings.Split(useChoice, ":")
+		if len(useChoice) < 1 {
+			InfoBar.Error("Invalide choice: parse err")
+			return
+		}
+		paneId, err := strconv.ParseInt(useChoiceParsed[0], 10, 64)
+		if err != nil {
+			InfoBar.Error("Invalide pane id")
+			return
+		}
+
+		MainTab().SetActive(MainTab().GetPane(uint64(paneId)))
+	default:
+		InfoBar.Error("Invalide args")
+	}
 }
 
 // TabSwitchCmd switches to a given tab either by name or by number

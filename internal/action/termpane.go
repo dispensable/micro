@@ -1,8 +1,13 @@
 package action
 
 import (
+	// "log"
+	"fmt"
 	"errors"
 	"runtime"
+	"strings"
+	"strconv"
+	// "unicode/utf8"
 
 	"github.com/zyedidia/micro/v2/internal/clipboard"
 	"github.com/zyedidia/micro/v2/internal/config"
@@ -11,6 +16,7 @@ import (
 	"github.com/zyedidia/micro/v2/internal/shell"
 	"github.com/zyedidia/tcell/v2"
 	"github.com/zyedidia/terminal"
+	// runewidth "github.com/mattn/go-runewidth"
 )
 
 type TermKeyAction func(*TermPane)
@@ -153,11 +159,43 @@ func (t *TermPane) HandleEvent(event tcell.Event) {
 			clipboard.Write(t.GetSelection(t.GetView().Width), clipboard.ClipboardReg)
 			InfoBar.Message("Copied selection to clipboard")
 		} else if t.Status != shell.TTDone {
-			t.WriteString(event.EscSeq())
+			if t.State.ScrollMode {
+				t.State.SetScrollMode(false)
+				InfoBar.Message("term-history mode disabled")
+			}
+			// log.Printf(
+			// 	">+ rune from event: %c | len: %d | valide utf8: %t | is key rune: %t",
+			// 	e.Rune(), runewidth.RuneWidth(e.Rune()),
+			// 	utf8.ValidRune(e.Rune()), e.Key() == tcell.KeyRune,
+			// )
+			// log.Printf(">+ esc from event: %v | len: %d", event.EscSeq(), len(event.EscSeq()))
+			// TODO: even tcell.KeyRune dected, the
+			// EscSeq func still may return Rune() combined with
+			// EscSeq. Maybe a bug in tcell
+			if e.Key() == tcell.KeyRune || e.Key() == tcell.KeyEnter {
+				t.WriteString(string(e.Rune()))
+			} else {
+				escseq := event.EscSeq()
+				// log.Printf(">+ esc code: %s, len: %d, rune: %s,", event.EscSeq(), len(event.EscSeq()), e.Rune())
+				// for index, ele := range escseq {
+				// 	log.Printf(">>> %d: %c|%d", index, escseq[index], ele)
+				// }
+				idxx := strings.IndexByte(escseq, byte(27))
+				// log.Printf(">+ find x1b at: %d", idxx)
+				// log.Printf(">+ word: %s,", escseq[:idxx])
+
+				// TODO: There must be a bug in collect keyenv logic
+				// Ignore None ESC char before esc seq
+				if idxx != -1 {
+					t.WriteString(escseq[idxx:])
+				} else {
+					t.WriteString(escseq)
+				}
+			}
 		}
-	} else if _, ok := event.(*tcell.EventPaste); ok {
+	} else if e, ok := event.(*tcell.EventPaste); ok {
 		if t.Status != shell.TTDone {
-			t.WriteString(event.EscSeq())
+			t.WriteString(e.Text())
 		}
 	} else if e, ok := event.(*tcell.EventMouse); e != nil && (!ok || t.State.Mode(terminal.ModeMouseMask)) {
 		// t.WriteString(event.EscSeq())
@@ -223,7 +261,77 @@ func (t *TermPane) NextSplit() {
 
 // HandleCommand handles a command for the term pane
 func (t *TermPane) HandleCommand(input string) {
-	InfoBar.Error("Commands are unsupported in term for now")
+	command := strings.Split(input, " ")
+	if len(command) == 0 {
+		InfoBar.Error("No input to run")
+		return
+	}
+
+	switch command[0] {
+	case "term-clip-paste":
+		c, err := clipboard.Read(clipboard.ClipboardReg)
+		if err != nil {
+			InfoBar.Error(fmt.Sprintf("read clipboard err: %s", err))
+			return
+		}
+		t.WriteString(c)
+		InfoBar.Message("pasted!")
+	case "term-history-mode":
+		if t.State.ScrollMode {
+			t.State.SetScrollMode(false)
+			InfoBar.Message("Term history scroll mode ... disabled")
+		} else {
+			t.State.SetScrollMode(true)
+			InfoBar.Message("Term history scroll mode ... enabled")
+		}
+	case "term-history":
+		// params check
+		argsLen := len(command[1:])
+		upOrDown := 1
+		var offset int
+
+		w, ok := t.Window.(*display.TermWindow)
+		if !ok {
+			InfoBar.Error("window parse err")
+			return
+		}
+		
+		switch argsLen {
+		case 1, 2:
+			switch command[1] {
+			case "up":
+				upOrDown = 1
+				offset = w.Height
+			case "down":
+				upOrDown = -1
+				offset = w.Height
+			default:
+				InfoBar.Error("params err, only accept up/down in term-history 1st param")
+				return
+			}
+		default:
+			InfoBar.Error("too many args for term-history, usage: term-history up/down <lines:ini>")
+			return
+		}
+
+		if argsLen == 2 {
+			offsetParsed, err := strconv.ParseInt(command[2], 10, 32)
+			if err != nil {
+				InfoBar.Error("scroll-up lines args parse err")
+				return
+			}
+			offset = int(offsetParsed)
+		}
+
+		if !t.State.ScrollMode {
+			t.State.SetScrollMode(true)
+			InfoBar.Message("Setting term history mode ... done")
+		}
+
+		t.State.SetScrollOffset(offset * upOrDown)
+	default:
+		InfoBar.Error("Unknown command")
+	}
 }
 
 // TermKeyActions contains the list of all possible key actions the termpane could execute

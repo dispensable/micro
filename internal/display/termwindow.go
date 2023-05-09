@@ -1,6 +1,8 @@
 package display
 
 import (
+	// "log"
+	// "fmt"
 	"github.com/zyedidia/micro/v2/internal/buffer"
 	"github.com/zyedidia/micro/v2/internal/config"
 	"github.com/zyedidia/micro/v2/internal/screen"
@@ -8,6 +10,7 @@ import (
 	"github.com/zyedidia/micro/v2/internal/util"
 	"github.com/zyedidia/tcell/v2"
 	"github.com/zyedidia/terminal"
+	runewidth "github.com/mattn/go-runewidth"
 )
 
 type TermWindow struct {
@@ -63,16 +66,72 @@ func (w *TermWindow) SetView(v *View) {
 	w.View = v
 }
 
+func (w *TermWindow) puts(styles []tcell.Style, x, y int, str []rune) {
+	i := 0
+	var deferred []rune
+	dwidth := 0
+	zwj := false
+	var style tcell.Style
+	for idx, r := range str {
+		style = styles[idx]
+
+		if r == '\u200d' {
+			if len(deferred) == 0 {
+				deferred = append(deferred, ' ')
+				dwidth = 1
+			}
+			deferred = append(deferred, r)
+			zwj = true
+			continue
+		}
+		if zwj {
+			deferred = append(deferred, r)
+			zwj = false
+			continue
+		}
+		switch runewidth.RuneWidth(r) {
+		case 0:
+			if len(deferred) == 0 {
+				deferred = append(deferred, ' ')
+				dwidth = 1
+			}
+		case 1:
+			if len(deferred) != 0 {
+				screen.SetContent(x+i, y, deferred[0], deferred[1:], style)
+				i += dwidth
+			}
+			deferred = nil
+			dwidth = 1
+		case 2:
+			if len(deferred) != 0 {
+				screen.SetContent(x+i, y, deferred[0], deferred[1:], style)
+				i += dwidth
+			}
+			deferred = nil
+			dwidth = 2
+		}
+		deferred = append(deferred, r)
+	}
+	if len(deferred) != 0 {
+		screen.SetContent(x+i, y, deferred[0], deferred[1:], style)
+		i += dwidth
+	}
+}
+
 // Display displays this terminal in a view
 func (w *TermWindow) Display() {
 	w.State.Lock()
 	defer w.State.Unlock()
 
 	var l buffer.Loc
+
 	for y := 0; y < w.Height; y++ {
+		line := []rune{}
+		styles := []tcell.Style{tcell.StyleDefault}
 		for x := 0; x < w.Width; x++ {
 			l.X, l.Y = x, y
 			c, f, b := w.State.Cell(x, y)
+			line = append(line, c)
 
 			fg, bg := int(f), int(b)
 			if f == terminal.DefaultFG {
@@ -82,14 +141,17 @@ func (w *TermWindow) Display() {
 				bg = int(tcell.ColorDefault)
 			}
 			st := tcell.StyleDefault.Foreground(config.GetColor256(fg)).Background(config.GetColor256(bg))
-
-			if l.LessThan(w.Selection[1]) && l.GreaterEqual(w.Selection[0]) || l.LessThan(w.Selection[0]) && l.GreaterEqual(w.Selection[1]) {
+			
+			if l.LessThan(w.Selection[1]) && l.GreaterEqual(w.Selection[0]) ||
+				l.LessThan(w.Selection[0]) && l.GreaterEqual(w.Selection[1]) {
 				st = st.Reverse(true)
 			}
-
-			screen.SetContent(w.X+x, w.Y+y, c, nil, st)
+			styles = append(styles, st)
 		}
+
+		w.puts(styles, w.X, w.Y+y, line)
 	}
+
 	if config.GetGlobalOption("statusline").(bool) {
 		statusLineStyle := config.DefStyle.Reverse(true)
 		if style, ok := config.Colorscheme["statusline"]; ok {
